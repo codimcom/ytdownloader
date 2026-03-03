@@ -25,14 +25,15 @@ pidfile.close()
 
 
 # Функция обработки видео
-def process_video_task(chat_id, link, start, end):
+def process_video_task(chat_id, link, timestamp):
     try:
-        clip = (link, start, end)
+        clip = (link, timestamp)
         logging.info(clip)
-        downloader.download_video(link, start, end)
+        downloader.download_video(link, timestamp)
 
         with open("videos/output.mp4", "rb") as video_file:
-            bot.send_video(chat_id, video_file, caption="")
+            logging.info("starting video sending")
+            bot.send_video(chat_id, video_file, caption="", timeout=100000)
 
         os.remove("videos/output.mp4")  # Удаляем файл после отправки
         db_helper.add_record(chat_id)
@@ -45,8 +46,8 @@ def process_video_task(chat_id, link, start, end):
 # Фоновый поток для обработки очереди
 def worker():
     while True:
-        chat_id, link, start, end = task_queue.get()
-        process_video_task(chat_id, link, start, end)
+        chat_id, link, timestamp = task_queue.get()
+        process_video_task(chat_id, link, timestamp)
         task_queue.task_done()
 
 
@@ -125,15 +126,17 @@ def get_start_time(message):
         # print(start, end, type(start))
         start = helper.time_to_seconds(start)
         end = helper.time_to_seconds(end)
-        if start < end:
-            info = (chat_id, user_data[chat_id]["link"], start, end)
+        if start < end and end - start <= 900:
+            info = (chat_id, user_data[chat_id]["link"], timecodes)
             task_queue.put(info)
             logging.info(f"{chat_id}, {user_data[chat_id]['title']}, {user_data[chat_id]['author']}, "
                          f"{start}, {end}, {user_data[chat_id]['link']}")
             bot.send_message(message.chat.id, "Принято! Скоро пришлю видео")
             user_data[chat_id] = {}
-        else:
+        elif start > end:
             bot.send_message(message.chat.id, "Время начала должно быть меньше времени конца!")
+        else:
+            bot.send_message(message.chat.id, "Длительность отрывка должна быть не более 15 минут")
     except Exception as e:
         bot.send_message(message.chat.id, "Что-то пошло не так. Попробуйте ещё раз")
         logging.error(e)
@@ -141,4 +144,5 @@ def get_start_time(message):
 
 
 # Запуск бота
-bot.polling(none_stop=True, non_stop=True)
+#bot.start_polling(none_stop=True, non_stop=True)
+bot.infinity_polling()

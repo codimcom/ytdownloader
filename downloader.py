@@ -2,9 +2,8 @@ import os
 import logging
 
 import requests
-from pytubefix import YouTube
 from moviepy import VideoFileClip
-from yt_dlp import YoutubeDL
+from yt_dlp import YoutubeDL, utils as yt_dlp_utils
 
 logging.basicConfig(level=logging.INFO, filename="downloader.log", filemode="a",
                     format="%(asctime)s %(levelname)s %(message)s")
@@ -42,17 +41,31 @@ def download_video(link: str, timestamp: str):
 
 
 def is_available(link: str):
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
+        # достаточно "плоской" инфы, полный разбор форматов не нужен
+        'extract_flat': False,
+    }
     try:
-        yt = YouTube(link)
-        av = yt.check_availability()
-        print("availability:", av)
-        title = yt.title
-        author = yt.author
-        preview_link = yt.thumbnail_url
-        if av is None:
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(link, download=False)
+
+        title = info.get('title')
+        author = info.get('uploader') or info.get('channel')
+        # берём самое крупное превью
+        preview_link = info.get('thumbnail')
+        if not preview_link and info.get('thumbnails'):
+            preview_link = info['thumbnails'][-1].get('url')
+
+        if title:
             return title, author, preview_link
-        else:
-            return None, None, None
+        return None, None, None
+    except yt_dlp_utils.DownloadError as e:
+        # видео недоступно / приватное / удалено / регион-лок и т.п.
+        logging.error(e)
+        return None, None, None
     except Exception as e:
         logging.error(e)
         return None, None, None
